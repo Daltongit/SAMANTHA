@@ -5,73 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Para Samantha</title>
     <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background-color: #000;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            touch-action: none;
-        }
-        canvas {
-            display: block;
-        }
-        #video-container {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            width: 150px;
-            height: 100px;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            z-index: 10;
-            display: none;
-        }
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1);
-        }
-        #ui-container {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            z-index: 10;
-            display: flex;
-            gap: 10px;
-        }
-        button {
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            backdrop-filter: blur(5px);
-            transition: background 0.3s;
-            font-size: 14px;
-        }
-        button:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        #loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 1.2rem;
-            z-index: 20;
-            pointer-events: none;
-            text-align: center;
-        }
-        @media (max-width: 768px) {
-            #video-container { width: 90px; height: 65px; }
-            .dg.ac { display: none !important; }
-            #ui-container { bottom: 10px; right: 10px; }
-            button { padding: 8px 12px; font-size: 12px; }
-        }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; touch-action: none; }
+        canvas { display: block; }
+        #video-container { position: absolute; bottom: 20px; left: 20px; width: 120px; height: 90px; border-radius: 10px; overflow: hidden; border: 2px solid rgba(255, 255, 255, 0.2); z-index: 10; display: none; }
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        #ui-container { position: absolute; bottom: 20px; right: 20px; z-index: 10; display: flex; gap: 10px; }
+        button { background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.3); padding: 10px 15px; border-radius: 5px; cursor: pointer; backdrop-filter: blur(5px); font-size: 14px; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 1.2rem; z-index: 20; text-align: center; pointer-events: none; }
+        #instrucciones { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.7); font-size: 0.9rem; text-align: center; pointer-events: none; z-index: 5; }
+        @media (max-width: 768px) { #video-container { width: 90px; height: 65px; } .dg.ac { display: none !important; } }
     </style>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -82,133 +24,152 @@
 </head>
 <body>
 
-    <div id="loading">Cargando magia...<br><small>Por favor, permite el acceso a la cámara</small></div>
-
-    <div id="video-container">
-        <video id="input_video" autoplay playsinline></video>
+    <div id="loading">Iniciando reconocimiento espacial...<br><small>Permite el acceso a la cámara</small></div>
+    
+    <div id="instrucciones">
+        1 Dedo: Mover figura | Puño: Encoger | 5 Dedos: Agrandar<br>
+        2 o 3 Dedos: Textos | 4 Dedos: Encuesta
     </div>
 
-    <div id="ui-container">
-        <button id="fullscreen-btn">Pantalla Completa</button>
-    </div>
+    <div id="video-container"><video id="input_video" autoplay playsinline></video></div>
+    <div id="ui-container"><button id="fullscreen-btn">Pantalla Completa</button></div>
 
     <script>
         // ==========================================
-        // 1. CONFIGURACIÓN BÁSICA THREE.JS
+        // 1. CONFIGURACIÓN THREE.JS
         // ==========================================
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         document.body.appendChild(renderer.domElement);
 
-        const particleCount = 12000;
+        const particleCount = 15000;
         let particles, geometry, shaderMaterial;
         
-        let shapeSphere = new Float32Array(particleCount * 3);
+        // Formas en memoria
+        let shapeRings = new Float32Array(particleCount * 3);
         let shapeText1 = new Float32Array(particleCount * 3);
         let shapeText2 = new Float32Array(particleCount * 3);
+        let shapePoll = new Float32Array(particleCount * 3);
+        let shapeHeart = new Float32Array(particleCount * 3);
+        let shapeSad = new Float32Array(particleCount * 3);
         let randoms = new Float32Array(particleCount);
 
-        const params = {
-            color: '#ff0055',
-            particleSize: 15.0,
-            showCamera: false
-        };
+        const params = { baseColor: '#ffffff', heartColor: '#ff0055', sadColor: '#0055ff' };
+        let currentColor = new THREE.Color(params.baseColor);
+        let targetColor = new THREE.Color(params.baseColor);
+        
+        let targetScale = 1.0;
+        let currentScale = 1.0;
 
         // ==========================================
-        // 2. GENERADOR DE FORMAS Y TEXTOS
+        // 2. GENERADOR DE FORMAS
         // ==========================================
-        function createTextShape(text, targetArray) {
+        function createTextShape(textLine1, textLine2, targetArray, fontSize = 70) {
             const canvas = document.createElement('canvas');
-            canvas.width = 800;
-            canvas.height = 300;
+            canvas.width = 800; canvas.height = 300;
             const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fff'; ctx.font = `bold ${fontSize}px Arial`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 70px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            
-            if(text.includes('Samantha')){
-                ctx.fillText('Te Quiero', canvas.width/2, canvas.height/2 - 40);
-                ctx.fillText('Samantha', canvas.width/2, canvas.height/2 + 40);
-            } else {
-                ctx.fillText('Chiquilla', canvas.width/2, canvas.height/2 - 40);
-                ctx.fillText('Preciosa', canvas.width/2, canvas.height/2 + 40);
-            }
+            ctx.fillText(textLine1, canvas.width/2, canvas.height/2 - 40);
+            if(textLine2) ctx.fillText(textLine2, canvas.width/2, canvas.height/2 + 40);
 
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
             const validPoints = [];
 
             for (let y = 0; y < canvas.height; y += 3) {
                 for (let x = 0; x < canvas.width; x += 3) {
-                    const i = (y * canvas.width + x) * 4;
-                    if (imgData[i] > 128) {
-                        validPoints.push({
-                            x: (x - canvas.width / 2) * 0.15,
-                            y: -(y - canvas.height / 2) * 0.15,
-                            z: (Math.random() - 0.5) * 2 
-                        });
+                    if (imgData[(y * canvas.width + x) * 4] > 128) {
+                        validPoints.push({ x: (x - canvas.width / 2) * 0.15, y: -(y - canvas.height / 2) * 0.15, z: (Math.random() - 0.5) * 2 });
                     }
                 }
             }
+            fillArrayWithPoints(validPoints, targetArray);
+        }
 
+        function createEmojiShape(emoji, targetArray) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 400; canvas.height = 400;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fff'; ctx.font = '200px Arial';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(emoji, 200, 200);
+
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const validPoints = [];
+            for (let y = 0; y < canvas.height; y += 3) {
+                for (let x = 0; x < canvas.width; x += 3) {
+                    if (imgData[(y * canvas.width + x) * 4] > 128) {
+                        validPoints.push({ x: (x - 200) * 0.2, y: -(y - 200) * 0.2, z: (Math.random() - 0.5) * 2 });
+                    }
+                }
+            }
+            fillArrayWithPoints(validPoints, targetArray);
+        }
+
+        function fillArrayWithPoints(pointsArray, targetArray) {
             for (let i = 0; i < particleCount; i++) {
-                const point = validPoints[i % validPoints.length];
-                targetArray[i * 3] = point.x + (Math.random() - 0.5) * 0.5;
-                targetArray[i * 3 + 1] = point.y + (Math.random() - 0.5) * 0.5;
-                targetArray[i * 3 + 2] = point.z;
+                const pt = pointsArray[i % pointsArray.length];
+                targetArray[i * 3] = pt.x + (Math.random() - 0.5) * 0.5;
+                targetArray[i * 3 + 1] = pt.y + (Math.random() - 0.5) * 0.5;
+                targetArray[i * 3 + 2] = pt.z;
                 randoms[i] = Math.random();
             }
         }
 
+        // Crear los gigantescos anillos tipo Saturno
         for (let i = 0; i < particleCount; i++) {
-            const phi = Math.acos(-1 + (2 * i) / particleCount);
-            const theta = Math.sqrt(particleCount * Math.PI) * phi;
-            const radius = 25;
-            
-            shapeSphere[i * 3] = radius * Math.cos(theta) * Math.sin(phi);
-            shapeSphere[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
-            shapeSphere[i * 3 + 2] = radius * Math.cos(phi);
+            let ringType = Math.random();
+            let radius;
+            // 4 Anillos con espacios entre ellos
+            if (ringType < 0.2) radius = 10 + Math.random() * 4;
+            else if (ringType < 0.5) radius = 18 + Math.random() * 6;
+            else if (ringType < 0.8) radius = 28 + Math.random() * 8;
+            else radius = 42 + Math.random() * 12;
+
+            let theta = Math.random() * Math.PI * 2;
+            shapeRings[i * 3] = radius * Math.cos(theta);
+            shapeRings[i * 3 + 1] = (Math.random() - 0.5) * 1.5; // Planos como un disco
+            shapeRings[i * 3 + 2] = radius * Math.sin(theta);
         }
 
-        createTextShape("Te Quiero Samantha", shapeText1);
-        createTextShape("Chiquilla Preciosa", shapeText2);
+        createTextShape("Te Quiero", "Samantha", shapeText1);
+        createTextShape("Chiquilla", "Preciosa", shapeText2);
+        createTextShape("¿TE GUSTÓ?", "< SÍ          NO >", shapePoll, 50);
+        createEmojiShape("❤️", shapeHeart);
+        createEmojiShape("😢", shapeSad);
 
+        // ==========================================
+        // 3. SISTEMA DE MORPHING DINÁMICO (SHADER)
+        // ==========================================
         geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(shapeSphere, 3));
-        geometry.setAttribute('aText1', new THREE.BufferAttribute(shapeText1, 3));
-        geometry.setAttribute('aText2', new THREE.BufferAttribute(shapeText2, 3));
+        let currentPositions = new Float32Array(shapeRings);
+        geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
+        geometry.setAttribute('aTarget', new THREE.BufferAttribute(new Float32Array(shapeRings), 3));
         geometry.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 1));
 
         shaderMaterial = new THREE.ShaderMaterial({
             uniforms: {
-                uColor: { value: new THREE.Color(params.color) },
-                uSize: { value: params.particleSize * Math.min(window.devicePixelRatio, 2) },
-                uWeightSphere: { value: 1.0 },
-                uWeightText1: { value: 0.0 },
-                uWeightText2: { value: 0.0 }
+                uColor: { value: currentColor },
+                uSize: { value: 12.0 * Math.min(window.devicePixelRatio, 2) },
+                uMorph: { value: 0.0 },
+                uScale: { value: 1.0 }
             },
             vertexShader: `
-                uniform float uWeightSphere;
-                uniform float uWeightText1;
-                uniform float uWeightText2;
+                uniform float uMorph;
                 uniform float uSize;
-                
-                attribute vec3 aText1;
-                attribute vec3 aText2;
+                uniform float uScale;
+                attribute vec3 aTarget;
                 attribute float aRandom;
 
                 void main() {
-                    vec3 finalPos = (position * uWeightSphere) + 
-                                    (aText1 * uWeightText1) + 
-                                    (aText2 * uWeightText2);
-
+                    // Mezcla suave entre la posición actual y la forma objetivo
+                    vec3 finalPos = mix(position, aTarget, uMorph) * uScale;
                     vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
                     gl_PointSize = uSize * (20.0 / -mvPosition.z) * (0.5 + aRandom * 0.5); 
                     gl_Position = projectionMatrix * mvPosition;
@@ -219,69 +180,68 @@
                 void main() {
                     float distance = length(gl_PointCoord - vec2(0.5));
                     if (distance > 0.5) discard;
-                    
                     float alpha = (0.5 - distance) * 2.0; 
                     gl_FragColor = vec4(uColor, alpha * 0.9);
                 }
             `,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending
+            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
         });
 
         particles = new THREE.Points(geometry, shaderMaterial);
+        // Inclinación inicial estilo Saturno
+        particles.rotation.x = Math.PI / 3; 
         scene.add(particles);
 
-        const gui = new dat.GUI();
-        gui.addColor(params, 'color').name('Color').onChange(c => shaderMaterial.uniforms.uColor.value.setHex(c.replace('#', '0x')));
-        gui.add(params, 'showCamera').name('Ver Cámara').onChange(v => {
-            document.getElementById('video-container').style.display = v ? 'block' : 'none';
-        });
+        let activeShapeName = 'rings';
+        
+        function changeShape(newShapeArray, colorHex, shapeName) {
+            if (activeShapeName === shapeName) return;
+            activeShapeName = shapeName;
 
-        // ==========================================
-        // CÁMARA DINÁMICA (Para PC y Celular)
-        // ==========================================
+            const pos = geometry.attributes.position.array;
+            const target = geometry.attributes.aTarget.array;
+            const morph = shaderMaterial.uniforms.uMorph.value;
+
+            // Congela la transición a la mitad
+            for(let i=0; i<particleCount*3; i++) {
+                pos[i] = pos[i] + (target[i] - pos[i]) * morph;
+                target[i] = newShapeArray[i];
+            }
+            
+            geometry.attributes.position.needsUpdate = true;
+            geometry.attributes.aTarget.needsUpdate = true;
+            
+            shaderMaterial.uniforms.uMorph.value = 0.0; // Reinicia la animación
+            targetColor.setHex(colorHex.replace('#', '0x'));
+        }
+
         function ajustarPantalla() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-
-            // Si la pantalla es más alta que ancha (celular vertical)
             if (window.innerWidth < 768) {
-                camera.position.z = 130; // Alejamos bastante la cámara para que entre el texto
-                // Aumentamos un poco el tamaño de las partículas para compensar la distancia
-                shaderMaterial.uniforms.uSize.value = params.particleSize * Math.min(window.devicePixelRatio, 2) * 1.5; 
+                camera.position.z = 120; 
+                shaderMaterial.uniforms.uSize.value = 18.0 * Math.min(window.devicePixelRatio, 2); 
             } else {
-                camera.position.z = 60; // Distancia normal para PC
-                shaderMaterial.uniforms.uSize.value = params.particleSize * Math.min(window.devicePixelRatio, 2);
+                camera.position.z = 70; 
+                shaderMaterial.uniforms.uSize.value = 12.0 * Math.min(window.devicePixelRatio, 2);
             }
         }
-        
         window.addEventListener('resize', ajustarPantalla);
-        ajustarPantalla(); // Llamar a la función al iniciar
+        ajustarPantalla();
 
         // ==========================================
-        // 3. MEDIAPIPE OPTIMIZADO
+        // 4. LÓGICA DE MANOS Y ENCUESTA
         // ==========================================
         const videoElement = document.getElementById('input_video');
-        
-        let targetRotationX = 0;
+        let targetRotationX = Math.PI / 3;
         let targetRotationY = 0;
-        let currentRotationX = 0;
-        let currentRotationY = 0;
         
-        let targetWeights = { sphere: 1.0, text1: 0.0, text2: 0.0 };
+        let pollActive = false;
+        let pollAnswered = false;
 
-        const hands = new Hands({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-        });
-
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 0, 
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
         hands.onResults((results) => {
             document.getElementById('loading').style.display = 'none';
@@ -289,76 +249,105 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                const palmX = landmarks[9].x - 0.5;
-                const palmY = landmarks[9].y - 0.5;
-                
-                targetRotationY = palmX * Math.PI * 2;
-                targetRotationX = palmY * Math.PI;
-
+                // Contar dedos levantados (Índice, Medio, Anular, Meñique)
                 let fingersUp = 0;
                 if (landmarks[8].y < landmarks[6].y) fingersUp++;
                 if (landmarks[12].y < landmarks[10].y) fingersUp++;
                 if (landmarks[16].y < landmarks[14].y) fingersUp++;
                 if (landmarks[20].y < landmarks[18].y) fingersUp++;
+                
+                // Sumar el pulgar si está extendido hacia un lado
+                if (Math.abs(landmarks[4].x - landmarks[9].x) > 0.15) fingersUp++;
 
-                if (fingersUp === 2) {
-                    targetWeights = { sphere: 0, text1: 1, text2: 0 };
-                    targetRotationX = 0; 
-                    targetRotationY = 0;
-                } else if (fingersUp === 3) {
-                    targetWeights = { sphere: 0, text1: 0, text2: 1 };
-                    targetRotationX = 0; 
-                    targetRotationY = 0;
-                } else {
-                    targetWeights = { sphere: 1, text1: 0, text2: 0 };
+                // LÓGICA DE ENCUESTA (Prioridad Máxima)
+                if (pollActive) {
+                    if (!pollAnswered && fingersUp === 1) {
+                        const indexX = landmarks[8].x;
+                        if (indexX < 0.3) {
+                            // Eligió SÍ (Izquierda)
+                            pollAnswered = true;
+                            changeShape(shapeHeart, params.heartColor, 'heart');
+                            setTimeout(() => { pollActive = false; pollAnswered = false; }, 4000);
+                        } else if (indexX > 0.7) {
+                            // Eligió NO (Derecha)
+                            pollAnswered = true;
+                            changeShape(shapeSad, params.sadColor, 'sad');
+                            setTimeout(() => { pollActive = false; pollAnswered = false; }, 4000);
+                        }
+                    }
+                    return; // Ignora otros gestos mientras la encuesta esté viva
+                }
+
+                // GESTOS NORMALES
+                if (fingersUp === 4) {
+                    pollActive = true;
+                    targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
+                    changeShape(shapePoll, params.baseColor, 'poll');
+                } 
+                else if (fingersUp === 0) {
+                    targetScale = 0.3; // Puño = Pequeño
+                } 
+                else if (fingersUp === 5) {
+                    targetScale = 1.8; // Mano abierta = Gigante
+                } 
+                else if (fingersUp === 1) {
+                    targetScale = 1.0;
+                    // Mover en 3D con el dedo
+                    targetRotationY = (landmarks[8].x - 0.5) * Math.PI * 4;
+                    targetRotationX = (landmarks[8].y - 0.5) * Math.PI * 2;
+                    changeShape(shapeRings, params.baseColor, 'rings');
+                } 
+                else if (fingersUp === 2) {
+                    targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
+                    changeShape(shapeText1, params.heartColor, 'text1');
+                } 
+                else if (fingersUp === 3) {
+                    targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
+                    changeShape(shapeText2, params.heartColor, 'text2');
                 }
 
             } else {
-                targetRotationY += 0.005;
-                targetRotationX = 0;
-                targetWeights = { sphere: 1, text1: 0, text2: 0 };
+                // Sin mano a la vista: rotación automática suave
+                if(!pollActive) {
+                    targetRotationY += 0.005;
+                    targetScale = 1.0;
+                    changeShape(shapeRings, params.baseColor, 'rings');
+                }
             }
         });
 
-        const camera_mp = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 160, 
-            height: 120
-        });
+        const camera_mp = new Camera(videoElement, { onFrame: async () => { await hands.send({image: videoElement}); }, width: 160, height: 120 });
         camera_mp.start();
 
         // ==========================================
-        // 4. BUCLE DE ANIMACIÓN
+        // 5. ANIMACIÓN Y RENDERIZADO
         // ==========================================
         function animate() {
             requestAnimationFrame(animate);
 
-            shaderMaterial.uniforms.uWeightSphere.value += (targetWeights.sphere - shaderMaterial.uniforms.uWeightSphere.value) * 0.1;
-            shaderMaterial.uniforms.uWeightText1.value += (targetWeights.text1 - shaderMaterial.uniforms.uWeightText1.value) * 0.1;
-            shaderMaterial.uniforms.uWeightText2.value += (targetWeights.text2 - shaderMaterial.uniforms.uWeightText2.value) * 0.1;
+            // Transición de Formas
+            if (shaderMaterial.uniforms.uMorph.value < 1.0) {
+                shaderMaterial.uniforms.uMorph.value += 0.04;
+            }
 
-            currentRotationX += (targetRotationX - currentRotationX) * 0.1;
-            currentRotationY += (targetRotationY - currentRotationY) * 0.1;
-            
-            particles.rotation.x = currentRotationX;
-            particles.rotation.y = currentRotationY;
+            // Transición de Colores y Escala
+            currentColor.lerp(targetColor, 0.05);
+            shaderMaterial.uniforms.uColor.value.copy(currentColor);
+            currentScale += (targetScale - currentScale) * 0.1;
+            shaderMaterial.uniforms.uScale.value = currentScale;
+
+            // Rotación Suave
+            particles.rotation.x += (targetRotationX - particles.rotation.x) * 0.1;
+            particles.rotation.y += (targetRotationY - particles.rotation.y) * 0.1;
 
             renderer.render(scene, camera);
         }
         animate();
 
-        // ==========================================
-        // 5. PANTALLA COMPLETA
-        // ==========================================
-        document.getElementById('fullscreen-btn').addEventListener('click', () => {
-            if (!document.fullscreenElement) {
-                document.body.requestFullscreen().catch(err => console.log(err));
-            } else {
-                document.exitFullscreen();
-            }
-        });
+        // Controles extra
+        const gui = new dat.GUI();
+        gui.add({ verCamara: false }, 'verCamara').name('Ver Cámara').onChange(v => document.getElementById('video-container').style.display = v ? 'block' : 'none');
+        document.getElementById('fullscreen-btn').addEventListener('click', () => { if (!document.fullscreenElement) document.body.requestFullscreen(); else document.exitFullscreen(); });
     </script>
 </body>
 </html>
