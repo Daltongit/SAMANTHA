@@ -7,13 +7,13 @@
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; }
-        #video-container { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 110px; border-radius: 10px; overflow: hidden; border: 2px solid rgba(255, 255, 255, 0.2); z-index: 10; display: none; }
+        #video-container { position: absolute; bottom: 20px; left: 20px; width: 150px; height: 110px; border-radius: 10px; overflow: hidden; border: 2px solid rgba(255, 255, 255, 0.2); z-index: 10; display: none; pointer-events: none; }
         video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
         #ui-container { position: absolute; bottom: 20px; right: 20px; z-index: 10; display: flex; gap: 10px; }
         button { background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.3); padding: 10px 15px; border-radius: 5px; cursor: pointer; backdrop-filter: blur(5px); font-size: 14px; transition: 0.3s; }
         button:hover { background: rgba(255, 255, 255, 0.3); }
         #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 1.2rem; z-index: 20; text-align: center; pointer-events: none; }
-        #instrucciones { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.7); font-size: 0.9rem; text-align: center; pointer-events: none; z-index: 5; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; }
+        #instrucciones { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.7); font-size: 0.9rem; text-align: center; pointer-events: none; z-index: 5; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; width: max-content;}
         @media (max-width: 768px) { #video-container { width: 90px; height: 65px; } .dg.ac { display: none !important; } #instrucciones { font-size: 0.75rem; width: 90%; } }
     </style>
     
@@ -28,8 +28,8 @@
     <div id="loading">Iniciando reconocimiento espacial...<br><small>Permite el acceso a la cámara</small></div>
     
     <div id="instrucciones">
-        👆 1 Dedo: Mover figura | ✊ Puño: Encoger | 🖐 5 Dedos: Agrandar<br>
-        ✌️ 2 o 3 Dedos: Mensajes | ✋ 4 Dedos: Encuesta
+        👆 1 Dedo: Mover | ✊ Puño: Encoger | 🖐 5 Dedos: Agrandar | ✌️ 2-3 Dedos: Mensajes<br>
+        🙌 10 Dedos: Encuesta (Tap/Clic en pantalla para responder)
     </div>
 
     <div id="video-container"><video id="input_video" autoplay playsinline></video></div>
@@ -40,7 +40,6 @@
         // DETECCIÓN INTELIGENTE DE HARDWARE
         // ==========================================
         const isMobile = window.innerWidth < 768;
-        // ¡Desatamos 40,000 partículas en PC para máximo impacto visual!
         const particleCount = isMobile ? 12000 : 40000; 
 
         // ==========================================
@@ -63,7 +62,7 @@
         let shapeSad = new Float32Array(particleCount * 3);
         let randoms = new Float32Array(particleCount);
 
-        const params = { baseColor: '#ffffff', heartColor: '#ff0055', sadColor: '#0055ff' };
+        const params = { baseColor: '#ff0055', heartColor: '#ff00ff', sadColor: '#0055ff' };
         let currentColor = new THREE.Color(params.baseColor);
         let targetColor = new THREE.Color(params.baseColor);
         
@@ -241,11 +240,38 @@
         let pollActive = false;
         let pollAnswered = false;
 
+        // RESPUESTA DE LA ENCUESTA (CLIC O TAP)
+        function handleInteraction(event) {
+            if (!pollActive || pollAnswered) return;
+
+            let clientX = event.type.includes('touch') ? event.touches[0].clientX : event.clientX;
+
+            if (clientX < window.innerWidth / 2) {
+                // Mitad Izquierda (SÍ)
+                pollAnswered = true;
+                changeShape(shapeHeart, params.heartColor, 'heart');
+            } else {
+                // Mitad Derecha (NO)
+                pollAnswered = true;
+                changeShape(shapeSad, params.sadColor, 'sad');
+            }
+
+            // Después de 4 segundos, volvemos al estado normal
+            setTimeout(() => { 
+                pollActive = false; 
+                pollAnswered = false; 
+                changeShape(shapeRings, params.baseColor, 'rings');
+            }, 4000);
+        }
+
+        window.addEventListener('click', handleInteraction);
+        window.addEventListener('touchstart', handleInteraction);
+
         const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
         
-        // Ajuste inteligente: Baja fidelidad en móvil para que no se trabe, Alta fidelidad en PC
+        // AHORA DETECTAMOS HASTA 2 MANOS
         hands.setOptions({ 
-            maxNumHands: 1, 
+            maxNumHands: 2, 
             modelComplexity: isMobile ? 0 : 1, 
             minDetectionConfidence: 0.5, 
             minTrackingConfidence: 0.5 
@@ -254,68 +280,66 @@
         hands.onResults((results) => {
             document.getElementById('loading').style.display = 'none';
 
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const landmarks = results.multiHandLandmarks[0];
-                
-                let fingersUp = 0;
-                if (landmarks[8].y < landmarks[6].y) fingersUp++;
-                if (landmarks[12].y < landmarks[10].y) fingersUp++;
-                if (landmarks[16].y < landmarks[14].y) fingersUp++;
-                if (landmarks[20].y < landmarks[18].y) fingersUp++;
-                if (Math.abs(landmarks[4].x - landmarks[9].x) > 0.15) fingersUp++;
+            // Si la encuesta está activa, IGNORAR las manos por completo
+            if (pollActive) return;
 
-                if (pollActive) {
-                    if (!pollAnswered && fingersUp === 1) {
-                        const indexX = landmarks[8].x;
-                        if (indexX < 0.3) {
-                            pollAnswered = true;
-                            changeShape(shapeHeart, params.heartColor, 'heart');
-                            setTimeout(() => { pollActive = false; pollAnswered = false; }, 4000);
-                        } else if (indexX > 0.7) {
-                            pollAnswered = true;
-                            changeShape(shapeSad, params.sadColor, 'sad');
-                            setTimeout(() => { pollActive = false; pollAnswered = false; }, 4000);
-                        }
+            let totalFingersUp = 0;
+            let indexFingerX = 0;
+            let indexFingerY = 0;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                
+                // Sumar los dedos de todas las manos en pantalla
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const landmarks = results.multiHandLandmarks[i];
+                    
+                    if (landmarks[8].y < landmarks[6].y) totalFingersUp++;
+                    if (landmarks[12].y < landmarks[10].y) totalFingersUp++;
+                    if (landmarks[16].y < landmarks[14].y) totalFingersUp++;
+                    if (landmarks[20].y < landmarks[18].y) totalFingersUp++;
+                    if (Math.abs(landmarks[4].x - landmarks[9].x) > 0.1) totalFingersUp++;
+
+                    // Guardamos la posición del índice de la primera mano para la rotación 3D
+                    if (i === 0) {
+                        indexFingerX = landmarks[8].x;
+                        indexFingerY = landmarks[8].y;
                     }
-                    return; 
                 }
 
-                if (fingersUp === 4) {
+                // LÓGICA DE GESTOS
+                if (totalFingersUp >= 9) { // 9 o 10 dedos activa la encuesta (por si la cámara falla con un dedo)
                     pollActive = true;
                     targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
                     changeShape(shapePoll, params.baseColor, 'poll');
                 } 
-                else if (fingersUp === 0) {
+                else if (totalFingersUp === 0) {
                     targetScale = 0.3; 
                 } 
-                else if (fingersUp === 5) {
+                else if (totalFingersUp === 5) {
                     targetScale = 1.8; 
                 } 
-                else if (fingersUp === 1) {
+                else if (totalFingersUp === 1) {
                     targetScale = 1.0;
-                    targetRotationY = (landmarks[8].x - 0.5) * Math.PI * 4;
-                    targetRotationX = (landmarks[8].y - 0.5) * Math.PI * 2;
+                    targetRotationY = (indexFingerX - 0.5) * Math.PI * 4;
+                    targetRotationX = (indexFingerY - 0.5) * Math.PI * 2;
                     changeShape(shapeRings, params.baseColor, 'rings');
                 } 
-                else if (fingersUp === 2) {
+                else if (totalFingersUp === 2) {
                     targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
-                    changeShape(shapeText1, params.heartColor, 'text1');
+                    changeShape(shapeText1, params.baseColor, 'text1'); 
                 } 
-                else if (fingersUp === 3) {
+                else if (totalFingersUp === 3) {
                     targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
-                    changeShape(shapeText2, params.heartColor, 'text2');
+                    changeShape(shapeText2, params.baseColor, 'text2'); 
                 }
 
             } else {
-                if(!pollActive) {
-                    targetRotationY += 0.005;
-                    targetScale = 1.0;
-                    changeShape(shapeRings, params.baseColor, 'rings');
-                }
+                targetRotationY += 0.005;
+                targetScale = 1.0;
+                changeShape(shapeRings, params.baseColor, 'rings');
             }
         });
 
-        // Cámara en mayor resolución si está en la PC para más precisión
         const camera_mp = new Camera(videoElement, { 
             onFrame: async () => { await hands.send({image: videoElement}); }, 
             width: isMobile ? 160 : 640, 
