@@ -67,8 +67,10 @@
             text-align: center;
         }
         @media (max-width: 768px) {
-            #video-container { width: 100px; height: 75px; }
+            #video-container { width: 90px; height: 65px; }
             .dg.ac { display: none !important; }
+            #ui-container { bottom: 10px; right: 10px; }
+            button { padding: 8px 12px; font-size: 12px; }
         }
     </style>
     
@@ -80,7 +82,7 @@
 </head>
 <body>
 
-    <div id="loading">Cargando magia ultra fluida...<br><small>Por favor, permite el acceso a la cámara</small></div>
+    <div id="loading">Cargando magia...<br><small>Por favor, permite el acceso a la cámara</small></div>
 
     <div id="video-container">
         <video id="input_video" autoplay playsinline></video>
@@ -96,8 +98,7 @@
         // ==========================================
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 60;
-
+        
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -109,16 +110,16 @@
         let shapeSphere = new Float32Array(particleCount * 3);
         let shapeText1 = new Float32Array(particleCount * 3);
         let shapeText2 = new Float32Array(particleCount * 3);
-        let randoms = new Float32Array(particleCount); // Para darle un ligero brillo/movimiento individual
+        let randoms = new Float32Array(particleCount);
 
         const params = {
             color: '#ff0055',
-            particleSize: 15.0, // Ajustado para shaders
+            particleSize: 15.0,
             showCamera: false
         };
 
         // ==========================================
-        // 2. GENERADOR DE FORMAS Y TEXTOS (Solo se ejecuta 1 vez)
+        // 2. GENERADOR DE FORMAS Y TEXTOS
         // ==========================================
         function createTextShape(text, targetArray) {
             const canvas = document.createElement('canvas');
@@ -166,7 +167,6 @@
             }
         }
 
-        // Crear la esfera base
         for (let i = 0; i < particleCount; i++) {
             const phi = Math.acos(-1 + (2 * i) / particleCount);
             const theta = Math.sqrt(particleCount * Math.PI) * phi;
@@ -181,15 +181,11 @@
         createTextShape("Chiquilla Preciosa", shapeText2);
 
         geometry = new THREE.BufferGeometry();
-        // A diferencia de antes, pasamos LAS TRES FORMAS a la memoria de la tarjeta gráfica a la vez
         geometry.setAttribute('position', new THREE.BufferAttribute(shapeSphere, 3));
         geometry.setAttribute('aText1', new THREE.BufferAttribute(shapeText1, 3));
         geometry.setAttribute('aText2', new THREE.BufferAttribute(shapeText2, 3));
         geometry.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 1));
 
-        // ==========================================
-        // SHADERS MÁGICOS (Procesamiento directo en GPU)
-        // ==========================================
         shaderMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 uColor: { value: new THREE.Color(params.color) },
@@ -209,24 +205,22 @@
                 attribute float aRandom;
 
                 void main() {
-                    // La GPU mezcla las posiciones instantáneamente sin loops pesados
                     vec3 finalPos = (position * uWeightSphere) + 
                                     (aText1 * uWeightText1) + 
                                     (aText2 * uWeightText2);
 
                     vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
-                    gl_PointSize = uSize * (20.0 / -mvPosition.z) * (0.5 + aRandom * 0.5); // Efecto de profundidad y tamaño variado
+                    gl_PointSize = uSize * (20.0 / -mvPosition.z) * (0.5 + aRandom * 0.5); 
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `,
             fragmentShader: `
                 uniform vec3 uColor;
                 void main() {
-                    // Dibuja círculos suaves en lugar de cuadrados duros
                     float distance = length(gl_PointCoord - vec2(0.5));
                     if (distance > 0.5) discard;
                     
-                    float alpha = (0.5 - distance) * 2.0; // Borde difuminado
+                    float alpha = (0.5 - distance) * 2.0; 
                     gl_FragColor = vec4(uColor, alpha * 0.9);
                 }
             `,
@@ -238,12 +232,33 @@
         particles = new THREE.Points(geometry, shaderMaterial);
         scene.add(particles);
 
-        // Interfaz
         const gui = new dat.GUI();
         gui.addColor(params, 'color').name('Color').onChange(c => shaderMaterial.uniforms.uColor.value.setHex(c.replace('#', '0x')));
         gui.add(params, 'showCamera').name('Ver Cámara').onChange(v => {
             document.getElementById('video-container').style.display = v ? 'block' : 'none';
         });
+
+        // ==========================================
+        // CÁMARA DINÁMICA (Para PC y Celular)
+        // ==========================================
+        function ajustarPantalla() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            // Si la pantalla es más alta que ancha (celular vertical)
+            if (window.innerWidth < 768) {
+                camera.position.z = 130; // Alejamos bastante la cámara para que entre el texto
+                // Aumentamos un poco el tamaño de las partículas para compensar la distancia
+                shaderMaterial.uniforms.uSize.value = params.particleSize * Math.min(window.devicePixelRatio, 2) * 1.5; 
+            } else {
+                camera.position.z = 60; // Distancia normal para PC
+                shaderMaterial.uniforms.uSize.value = params.particleSize * Math.min(window.devicePixelRatio, 2);
+            }
+        }
+        
+        window.addEventListener('resize', ajustarPantalla);
+        ajustarPantalla(); // Llamar a la función al iniciar
 
         // ==========================================
         // 3. MEDIAPIPE OPTIMIZADO
@@ -255,7 +270,6 @@
         let currentRotationX = 0;
         let currentRotationY = 0;
         
-        // Pesos objetivo para la transición
         let targetWeights = { sphere: 1.0, text1: 0.0, text2: 0.0 };
 
         const hands = new Hands({
@@ -264,7 +278,7 @@
 
         hands.setOptions({
             maxNumHands: 1,
-            modelComplexity: 0, // BAJAMOS A 0 PARA MÁXIMA VELOCIDAD EN CELULARES
+            modelComplexity: 0, 
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
@@ -310,18 +324,17 @@
             onFrame: async () => {
                 await hands.send({image: videoElement});
             },
-            width: 160, // RESOLUCIÓN MÁS BAJA PARA CÁMARA = MÁS RENDIMIENTO
+            width: 160, 
             height: 120
         });
         camera_mp.start();
 
         // ==========================================
-        // 4. BUCLE DE ANIMACIÓN SÚPER LIGERO
+        // 4. BUCLE DE ANIMACIÓN
         // ==========================================
         function animate() {
             requestAnimationFrame(animate);
 
-            // Interpolación de pesos matemáticos (Solo 3 cálculos, en lugar de 36,000)
             shaderMaterial.uniforms.uWeightSphere.value += (targetWeights.sphere - shaderMaterial.uniforms.uWeightSphere.value) * 0.1;
             shaderMaterial.uniforms.uWeightText1.value += (targetWeights.text1 - shaderMaterial.uniforms.uWeightText1.value) * 0.1;
             shaderMaterial.uniforms.uWeightText2.value += (targetWeights.text2 - shaderMaterial.uniforms.uWeightText2.value) * 0.1;
@@ -337,14 +350,8 @@
         animate();
 
         // ==========================================
-        // 5. RESPONSIVIDAD Y PANTALLA COMPLETA
+        // 5. PANTALLA COMPLETA
         // ==========================================
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-
         document.getElementById('fullscreen-btn').addEventListener('click', () => {
             if (!document.fullscreenElement) {
                 document.body.requestFullscreen().catch(err => console.log(err));
