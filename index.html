@@ -59,6 +59,7 @@
         let randoms = new Float32Array(particleCount);
         let randOffsets = new Float32Array(particleCount * 3); 
 
+        // Colores románticos profundos y vibrantes
         const params = { baseColor: '#ff0055', heartColor: '#ff00ff', sadColor: '#0055ff' };
         let currentColor = new THREE.Color(params.baseColor);
         let targetColor = new THREE.Color(params.baseColor);
@@ -69,6 +70,7 @@
         // ==========================================
         // 2. GENERADOR DE FORMAS
         // ==========================================
+        // OPTIMIZACIÓN: Los textos no añaden aleatoriedad en Z
         function createTextShape(textLine1, textLine2, targetArray, fontSize = 70) {
             const canvas = document.createElement('canvas');
             canvas.width = 800; canvas.height = 300;
@@ -86,11 +88,12 @@
             for (let y = 0; y < canvas.height; y += 3) {
                 for (let x = 0; x < canvas.width; x += 3) {
                     if (imgData[(y * canvas.width + x) * 4] > 128) {
-                        validPoints.push({ x: (x - canvas.width / 2) * 0.15, y: -(y - canvas.height / 2) * 0.15, z: (Math.random() - 0.5) * 2 });
+                        // Texto ultra preciso, profundidad mínima
+                        validPoints.push({ x: (x - canvas.width / 2) * 0.15, y: -(y - canvas.height / 2) * 0.15, z: (Math.random() - 0.5) * 0.1 });
                     }
                 }
             }
-            fillArrayWithPoints(validPoints, targetArray);
+            fillArrayWithPoints(validPoints, targetArray, 0.1);
         }
 
         function createEmojiShape(emoji, targetArray) {
@@ -111,14 +114,15 @@
                     }
                 }
             }
-            fillArrayWithPoints(validPoints, targetArray);
+            fillArrayWithPoints(validPoints, targetArray, 0.5);
         }
 
-        function fillArrayWithPoints(pointsArray, targetArray) {
+        function fillArrayWithPoints(pointsArray, targetArray, maxNoise) {
             for (let i = 0; i < particleCount; i++) {
                 const pt = pointsArray[i % pointsArray.length];
-                targetArray[i * 3] = pt.x + (Math.random() - 0.5) * 0.5;
-                targetArray[i * 3 + 1] = pt.y + (Math.random() - 0.5) * 0.5;
+                // Reducimos el ruido de formación para mejor legibilidad
+                targetArray[i * 3] = pt.x + (Math.random() - 0.5) * maxNoise;
+                targetArray[i * 3 + 1] = pt.y + (Math.random() - 0.5) * maxNoise;
                 targetArray[i * 3 + 2] = pt.z;
                 randoms[i] = Math.random();
                 randOffsets[i * 3] = Math.random() * Math.PI * 2;
@@ -127,24 +131,28 @@
             }
         }
 
+        // --- NUEVA FIGURA: ESFERA CENTRAL SÓLIDA + ANILLOS DENSOS ---
         for (let i = 0; i < particleCount; i++) {
             let type = Math.random();
-            if (type < 0.25) { 
-                let phi = Math.acos(-1 + (2 * i) / (particleCount * 0.25));
-                let theta = Math.sqrt(particleCount * 0.25 * Math.PI) * phi;
-                let radius = 6 + Math.random(); 
+            if (type < 0.35) { // Aumentamos la densidad del núcleo al 35%
+                // Esfera Central "Sólida como gema"
+                let phi = Math.acos(-1 + (2 * i) / (particleCount * 0.35));
+                let theta = Math.sqrt(particleCount * 0.35 * Math.PI) * phi;
+                // Radio ultra condensado y sin fuzz para solidez
+                let radius = 6.0 + (Math.random() - 0.5) * 0.2; 
                 shapeRings[i * 3] = radius * Math.cos(theta) * Math.sin(phi);
                 shapeRings[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
                 shapeRings[i * 3 + 2] = radius * Math.cos(phi);
             } else { 
+                // Anillos Cortos y Densos, planos como disco de acreción
                 let ringType = Math.random();
                 let radius;
-                if (ringType < 0.4) radius = 12 + Math.random() * 2;
-                else if (ringType < 0.7) radius = 16 + Math.random() * 3;
-                else radius = 22 + Math.random() * 3;
+                if (ringType < 0.4) radius = 10 + Math.random() * 2; // Más cercanos al núcleo
+                else if (ringType < 0.7) radius = 14 + Math.random() * 3;
+                else radius = 20 + Math.random() * 3;
                 let theta = Math.random() * Math.PI * 2;
                 shapeRings[i * 3] = radius * Math.cos(theta);
-                shapeRings[i * 3 + 1] = (Math.random() - 0.5) * 0.8; 
+                shapeRings[i * 3 + 1] = (Math.random() - 0.5) * 0.6; // Ultra planos
                 shapeRings[i * 3 + 2] = radius * Math.sin(theta);
             }
         }
@@ -155,8 +163,8 @@
         createEmojiShape("❤️", shapeHeart);
         createEmojiShape("😢", shapeSad);
 
-        // ==========================================
-        // 3. SISTEMA DE PARTÍCULAS PRINCIPAL (SHADER ESTABLE)
+        // ================= ==========================
+        // 3. SISTEMA DE PARTÍCULAS PRINCIPAL (SHADER ESTABLE Y FLUIDO)
         // ==========================================
         geometry = new THREE.BufferGeometry();
         let currentPositions = new Float32Array(shapeRings);
@@ -171,13 +179,15 @@
                 uSize: { value: 12.0 * Math.min(window.devicePixelRatio, 2) },
                 uMorph: { value: 0.0 },
                 uScale: { value: 1.0 },
-                uTime: { value: 0.0 } 
+                uTime: { value: 0.0 },
+                uIsText: { value: 0.0 } // NUEVO UNIFORME DE Detección de texto
             },
             vertexShader: `
                 uniform float uMorph;
                 uniform float uSize;
                 uniform float uScale;
                 uniform float uTime;
+                uniform float uIsText; // NUEVO UNIFORME
                 attribute vec3 aTarget;
                 attribute float aRandom;
                 attribute vec3 aRandOffset; 
@@ -185,16 +195,25 @@
                 void main() {
                     vec3 finalPos = mix(position, aTarget, uMorph);
                     
-                    // --- FLUIDEZ ESTABLE MEDIANTE ONDAS ---
+                    // --- FLUIDEZ ESTABLE Y LENTA MEDIANTE ONDAS ---
+                    // Se aplica la suavidad de un fluido lento.
                     vec3 fluidMotion = vec3(
-                        sin(finalPos.y * 0.2 + uTime * 2.0 + aRandOffset.x),
-                        cos(finalPos.x * 0.2 + uTime * 2.0 + aRandOffset.y),
-                        sin(finalPos.z * 0.2 + uTime * 2.0 + aRandOffset.z)
-                    ) * 0.6; // Amplitud del movimiento fluido
+                        sin(finalPos.y * 0.1 + uTime * 1.5 + aRandOffset.x),
+                        cos(finalPos.x * 0.1 + uTime * 1.5 + aRandOffset.y),
+                        sin(finalPos.z * 0.1 + uTime * 1.5 + aRandOffset.z)
+                    ) * 0.35; // Amplitud controlada para fluidez sin borrosidad
 
-                    // El movimiento es más salvaje en los textos/corazones (uMorph cercano a 1)
-                    float morphMult = mix(1.0, 3.5, uMorph); 
-                    finalPos += fluidMotion * morphMult;
+                    // DETECCION DE TEXTO: El movimiento aleatorio se apaga si es texto.
+                    // Si es texto (uIsText es 1), fluidMotionMult es 0. 
+                    // Si no es texto, es 1.
+                    float fluidMotionMult = 1.0 - uIsText;
+
+                    // El movimiento inactivo es sutil en los anillos.
+                    // Aumentamos el movimiento inactivo cuando uMorph se acerca a 1.0 (para emojis)
+                    float morphMult = mix(1.0, 3.0, uMorph); 
+                    
+                    // Solo aplicamos movimiento inactivo si NO es texto y está en estado de fluido.
+                    finalPos += fluidMotion * morphMult * fluidMotionMult;
                     
                     finalPos *= uScale;
                     
@@ -238,6 +257,7 @@
                     uniform float uTime;
                     void main() {
                         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        // Ligero parpadeo
                         float alpha = 0.5 + 0.5 * sin(position.x * 0.01 + uTime * 2.0);
                         gl_PointSize = 1.5 * (1.0 + alpha); 
                         gl_Position = projectionMatrix * mvPosition;
@@ -256,7 +276,7 @@
         createStarField();
 
         function createComets() {
-            const count = 30; 
+            const count = 30; // Menor cantidad pero moviéndose rápido
             const cometGeometry = new THREE.BufferGeometry();
             const cometPositions = new Float32Array(count * 6); 
             for (let i = 0; i < count; i++) {
@@ -269,7 +289,8 @@
                 cometPositions[i * 6 + 3] = x;
                 cometPositions[i * 6 + 4] = y;
                 cometPositions[i * 6 + 5] = z;
-                cometsVelocity.push(new THREE.Vector3((Math.random() - 0.5) * 40.0, (Math.random() - 0.5) * 40.0, (Math.random() - 0.5) * 40.0));
+                // Cometas mucho más rápidos (Triple de velocidad)
+                cometsVelocity.push(new THREE.Vector3((Math.random() - 0.5) * 120.0, (Math.random() - 0.5) * 120.0, (Math.random() - 0.5) * 120.0));
             }
             cometGeometry.setAttribute('position', new THREE.BufferAttribute(cometPositions, 3));
             const cometMaterial = new THREE.ShaderMaterial({
@@ -293,35 +314,29 @@
         createComets();
 
         function updateComets(delta) {
-            // Protección contra saltos de tiempo locos (ej. cuando cambias de pestaña)
-            if (delta > 0.1) delta = 0.016; 
-            
             const positions = comets.geometry.attributes.position.array;
             for (let i = 0; i < cometsVelocity.length; i++) {
                 let vel = cometsVelocity[i];
-                positions[i * 6] += vel.x * delta * 50;
-                positions[i * 6 + 1] += vel.y * delta * 50;
-                positions[i * 6 + 2] += vel.z * delta * 50;
-                
-                positions[i * 6 + 3] = positions[i * 6] - vel.x * 0.5;
-                positions[i * 6 + 4] = positions[i * 6 + 1] - vel.y * 0.5;
-                positions[i * 6 + 5] = positions[i * 6 + 2] - vel.z * 0.5;
+                positions[i * 6] += vel.x * delta;
+                positions[i * 6 + 1] += vel.y * delta;
+                positions[i * 6 + 2] += vel.z * delta;
+                // Cola sigue a la cabeza
+                positions[i * 6 + 3] = positions[i * 6] - vel.x * 0.3;
+                positions[i * 6 + 4] = positions[i * 6 + 1] - vel.y * 0.3;
+                positions[i * 6 + 5] = positions[i * 6 + 2] - vel.z * 0.3;
 
-                if (positions[i * 6] > 1000 || positions[i * 6] < -1000 || 
-                    positions[i * 6 + 1] > 1000 || positions[i * 6 + 1] < -1000 ||
-                    positions[i * 6 + 2] > 700 || positions[i * 6 + 2] < -1300) {
-                    
-                    positions[i * 6] = (Math.random() - 0.5) * 1000;
-                    positions[i * 6 + 1] = (Math.random() - 0.5) * 1000;
-                    positions[i * 6 + 2] = (Math.random() - 0.5) * 1000 - 300;
-                }
+                // Reset si salen de pantalla
+                if (positions[i * 6] > 1000 || positions[i * 6] < -1000) positions[i * 6] = (Math.random() - 0.5) * 1000;
+                if (positions[i * 6 + 1] > 1000 || positions[i * 6 + 1] < -1000) positions[i * 6 + 1] = (Math.random() - 0.5) * 1000;
+                if (positions[i * 6 + 2] > 700 || positions[i * 6 + 2] < -1300) positions[i * 6 + 2] = (Math.random() - 0.5) * 1000 - 300;
             }
             comets.geometry.attributes.position.needsUpdate = true;
         }
 
         let activeShapeName = 'rings';
         
-        function changeShape(newShapeArray, colorHex, shapeName) {
+        // Actualizamos para gestionar legibilidad de texto
+        function changeShape(newShapeArray, colorHex, shapeName, isText) {
             if (activeShapeName === shapeName) return;
             activeShapeName = shapeName;
 
@@ -339,6 +354,9 @@
             
             shaderMaterial.uniforms.uMorph.value = 0.0; 
             targetColor.setHex(colorHex.replace('#', '0x'));
+            
+            // Avisar al shader si es texto o no
+            shaderMaterial.uniforms.uIsText.value = isText ? 1.0 : 0.0;
         }
 
         function ajustarPantalla() {
@@ -371,15 +389,15 @@
             let clientX = event.type.includes('touch') ? event.touches[0].clientX : event.clientX;
             if (clientX < window.innerWidth / 2) {
                 pollAnswered = true;
-                changeShape(shapeHeart, params.heartColor, 'heart');
+                changeShape(shapeHeart, params.heartColor, 'heart', false);
             } else {
                 pollAnswered = true;
-                changeShape(shapeSad, params.sadColor, 'sad');
+                changeShape(shapeSad, params.sadColor, 'sad', false);
             }
             setTimeout(() => { 
                 pollActive = false; 
                 pollAnswered = false; 
-                changeShape(shapeRings, params.baseColor, 'rings');
+                changeShape(shapeRings, params.baseColor, 'rings', false);
             }, 4000);
         }
 
@@ -422,7 +440,7 @@
                 if (totalFingersUp >= 9) { 
                     pollActive = true;
                     targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
-                    changeShape(shapePoll, params.baseColor, 'poll');
+                    changeShape(shapePoll, params.baseColor, 'poll', true);
                 } 
                 else if (totalFingersUp === 0) {
                     targetScale = 0.3; 
@@ -434,21 +452,21 @@
                     targetScale = 1.0;
                     targetRotationY = (indexFingerX - 0.5) * Math.PI * 4;
                     targetRotationX = (indexFingerY - 0.5) * Math.PI * 2;
-                    changeShape(shapeRings, params.baseColor, 'rings');
+                    changeShape(shapeRings, params.baseColor, 'rings', false);
                 } 
                 else if (totalFingersUp === 2) {
                     targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
-                    changeShape(shapeText1, params.baseColor, 'text1'); 
+                    changeShape(shapeText1, params.baseColor, 'text1', true); 
                 } 
                 else if (totalFingersUp === 3) {
                     targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
-                    changeShape(shapeText2, params.baseColor, 'text2'); 
+                    changeShape(shapeText2, params.baseColor, 'text2', true); 
                 }
 
             } else {
                 targetRotationY += 0.005;
                 targetScale = 1.0;
-                changeShape(shapeRings, params.baseColor, 'rings');
+                changeShape(shapeRings, params.baseColor, 'rings', false);
             }
         });
 
