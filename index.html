@@ -13,8 +13,8 @@
         button { background: rgba(255, 255, 255, 0.1); color: white; border: 1px solid rgba(255, 255, 255, 0.3); padding: 10px 15px; border-radius: 5px; cursor: pointer; backdrop-filter: blur(5px); font-size: 14px; transition: 0.3s; }
         button:hover { background: rgba(255, 255, 255, 0.3); }
         #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 1.2rem; z-index: 20; text-align: center; pointer-events: none; }
-        #instrucciones { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.7); font-size: 0.9rem; text-align: center; pointer-events: none; z-index: 5; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; width: max-content;}
-        @media (max-width: 768px) { #video-container { width: 90px; height: 65px; } .dg.ac { display: none !important; } #instrucciones { font-size: 0.75rem; width: 90%; } }
+        /* HE ELIMINADO EL ESTILO DE #instrucciones */
+        @media (max-width: 768px) { #video-container { width: 90px; height: 65px; } .dg.ac { display: none !important; } }
     </style>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -27,11 +27,6 @@
 
     <div id="loading">Iniciando reconocimiento espacial...<br><small>Permite el acceso a la cámara</small></div>
     
-    <div id="instrucciones">
-        👆 1 Dedo: Mover | ✊ Puño: Encoger | 🖐 5 Dedos: Agrandar | ✌️ 2-3 Dedos: Mensajes<br>
-        🙌 10 Dedos: Encuesta (Tap/Clic en pantalla para responder)
-    </div>
-
     <div id="video-container"><video id="input_video" autoplay playsinline></video></div>
     <div id="ui-container"><button id="fullscreen-btn">Pantalla Completa</button></div>
 
@@ -53,7 +48,9 @@
         document.body.appendChild(renderer.domElement);
 
         let particles, geometry, shaderMaterial;
-        
+        let starFieldParticles, comets;
+        let cometsVelocity = [];
+
         let shapeRings = new Float32Array(particleCount * 3);
         let shapeText1 = new Float32Array(particleCount * 3);
         let shapeText2 = new Float32Array(particleCount * 3);
@@ -61,6 +58,7 @@
         let shapeHeart = new Float32Array(particleCount * 3);
         let shapeSad = new Float32Array(particleCount * 3);
         let randoms = new Float32Array(particleCount);
+        let randOffsets = new Float32Array(particleCount * 3); // Para individualizar el movimiento inactivo
 
         const params = { baseColor: '#ff0055', heartColor: '#ff00ff', sadColor: '#0055ff' };
         let currentColor = new THREE.Color(params.baseColor);
@@ -124,35 +122,32 @@
                 targetArray[i * 3 + 1] = pt.y + (Math.random() - 0.5) * 0.5;
                 targetArray[i * 3 + 2] = pt.z;
                 randoms[i] = Math.random();
+                // Asignamos offsets aleatorios únicos
+                randOffsets[i * 3] = (Math.random() - 0.5) * 10.0;
+                randOffsets[i * 3 + 1] = (Math.random() - 0.5) * 10.0;
+                randOffsets[i * 3 + 2] = (Math.random() - 0.5) * 10.0;
             }
         }
 
-        // --- NUEVA FIGURA: ESFERA CENTRAL + ANILLOS CORTOS ---
+        // --- FIGURA INICIAL: ESFERA CENTRAL + ANILLOS CORTOS ---
         for (let i = 0; i < particleCount; i++) {
             let type = Math.random();
-            
             if (type < 0.25) { 
-                // 25% de partículas hacen la Esfera Central
                 let phi = Math.acos(-1 + (2 * i) / (particleCount * 0.25));
                 let theta = Math.sqrt(particleCount * 0.25 * Math.PI) * phi;
-                let radius = 6 + Math.random(); // Esfera sólida de radio 6
-                
+                let radius = 6 + Math.random(); 
                 shapeRings[i * 3] = radius * Math.cos(theta) * Math.sin(phi);
                 shapeRings[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
                 shapeRings[i * 3 + 2] = radius * Math.cos(phi);
             } else { 
-                // 75% hacen anillos más cercanos a la esfera
                 let ringType = Math.random();
                 let radius;
-                
-                // Radios de 12 a 25 (antes eran hasta 54)
                 if (ringType < 0.4) radius = 12 + Math.random() * 2;
                 else if (ringType < 0.7) radius = 16 + Math.random() * 3;
                 else radius = 22 + Math.random() * 3;
-
                 let theta = Math.random() * Math.PI * 2;
                 shapeRings[i * 3] = radius * Math.cos(theta);
-                shapeRings[i * 3 + 1] = (Math.random() - 0.5) * 0.8; // Anillos bien planos
+                shapeRings[i * 3 + 1] = (Math.random() - 0.5) * 0.8; 
                 shapeRings[i * 3 + 2] = radius * Math.sin(theta);
             }
         }
@@ -164,30 +159,129 @@
         createEmojiShape("😢", shapeSad);
 
         // ==========================================
-        // 3. SISTEMA DE MORPHING DINÁMICO
+        // 3. SISTEMA DE PARTÍCULAS PRINCIPAL CON SHADERS
         // ==========================================
         geometry = new THREE.BufferGeometry();
         let currentPositions = new Float32Array(shapeRings);
         geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
         geometry.setAttribute('aTarget', new THREE.BufferAttribute(new Float32Array(shapeRings), 3));
         geometry.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 1));
+        geometry.setAttribute('aRandOffset', new THREE.BufferAttribute(randOffsets, 3)); // NUEVO ATRIBUTO
+
+        // === NOISE FUNCTION EN GPU ===
+        // Usaremos un ruido simple de 3D para mayor fluidez
+        const simpleNoise = `
+            float mod289(float x){return x - floor(x * (1.0 / 289.0)) * 289.0;}
+            vec4 mod289(vec4 x){return x - floor(x * (1.0 / 289.0)) * 289.0;}
+            vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+            vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+            vec3 fade(vec3 t) {return t*t*t*(t*(t*6.0-15.0)+10.0);}
+
+            float pnoise(vec3 P, vec3 rep){
+                vec3 Pi0 = mod(floor(P), rep); // Integer part, wrapped
+                vec3 Pi1 = mod(Pi0 + vec3(1.0), rep); // Integer part + 1, wrapped
+                Pi0 = mod289(Pi0);
+                Pi1 = mod289(Pi1);
+                vec3 Pf0 = fract(P); // Fractional part for interpolation
+                vec3 Pf1 = Pf0 - vec3(1.0); // Fractional part - 1.0
+                vec4 ix = vec4(Pi0.x, Pi1.x, Pi0.x, Pi1.x);
+                vec4 iy = vec4(Pi0.yy, Pi1.yy);
+                vec4 iz0 = vec4(Pi0.zzzz);
+                vec4 iz1 = vec4(Pi1.zzzz);
+
+                vec4 ixy = permute(permute(ix) + iy);
+                vec4 ixy0 = permute(ixy + iz0);
+                vec4 ixy1 = permute(ixy + iz1);
+
+                vec4 gx0 = ixy0 * (1.0 / 7.0);
+                vec4 gy0 = fract(floor(gx0) * (1.0 / 7.0)) - 0.5;
+                gx0 = fract(gx0);
+                vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0);
+                vec4 sz0 = step(gz0, vec4(0.0));
+                gx0 -= sz0 * (step(0.0, gx0) - 0.5);
+                gy0 -= sz0 * (step(0.0, gy0) - 0.5);
+
+                vec4 gx1 = ixy1 * (1.0 / 7.0);
+                vec4 gy1 = fract(floor(gx1) * (1.0 / 7.0)) - 0.5;
+                gx1 = fract(gx1);
+                vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1);
+                vec4 sz1 = step(gz1, vec4(0.0));
+                gx1 -= sz1 * (step(0.0, gx1) - 0.5);
+                gy1 -= sz1 * (step(0.0, gy1) - 0.5);
+
+                vec3 g000 = vec3(gx0.x,gy0.x,gz0.x);
+                vec3 g100 = vec3(gx0.y,gy0.y,gz0.y);
+                vec3 g010 = vec3(gx0.z,gy0.z,gz0.z);
+                vec3 g110 = vec3(gx0.w,gy0.w,gz0.w);
+                vec3 g001 = vec3(gx1.x,gy1.x,gz1.x);
+                vec3 g101 = vec3(gx1.y,gy1.y,gz1.y);
+                vec3 g011 = vec3(gx1.z,gy1.z,gz1.z);
+                vec3 g111 = vec3(gx1.w,gy1.w,gz1.w);
+
+                vec4 norm0 = taylorInvSqrt(vec4(dot(g000, g000), dot(g100, g100), dot(g010, g010), dot(g110, g110)));
+                g000 *= norm0.x;
+                g100 *= norm0.y;
+                g010 *= norm0.z;
+                g110 *= norm0.w;
+                vec4 norm1 = taylorInvSqrt(vec4(dot(g001, g001), dot(g101, g101), dot(g011, g011), dot(g111, g111)));
+                g001 *= norm1.x;
+                g101 *= norm1.y;
+                g011 *= norm1.z;
+                g111 *= norm1.w;
+
+                float n000 = dot(g000, Pf0);
+                float n100 = dot(g100, vec3(Pf1.x, Pf0.yz));
+                float n010 = dot(g010, vec3(Pf0.x, Pf1.y, Pf0.z));
+                float n110 = dot(g110, vec3(Pf1.xy, Pf0.z));
+                float n001 = dot(g001, vec3(Pf0.xy, Pf1.z));
+                float n101 = dot(g101, vec3(Pf1.x, Pf0.y, Pf1.z));
+                float n011 = dot(g011, vec3(Pf0.x, Pf1.yz));
+                float n111 = dot(g111, Pf1);
+
+                vec3 fade_xyz = fade(Pf0);
+                vec4 n_z = mix(vec4(n000, n100, n010, n110), vec4(n001, n101, n011, n111), fade_xyz.z);
+                vec2 n_yz = mix(n_z.xy, n_z.zw, fade_xyz.y);
+                float n_xyz = mix(n_yz.x, n_yz.y, fade_xyz.x);
+                return 2.2 * n_xyz;
+            }
+        `;
 
         shaderMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 uColor: { value: currentColor },
                 uSize: { value: 12.0 * Math.min(window.devicePixelRatio, 2) },
                 uMorph: { value: 0.0 },
-                uScale: { value: 1.0 }
+                uScale: { value: 1.0 },
+                uTime: { value: 0.0 } // NUEVO UNIFORME
             },
             vertexShader: `
                 uniform float uMorph;
                 uniform float uSize;
                 uniform float uScale;
+                uniform float uTime;
                 attribute vec3 aTarget;
                 attribute float aRandom;
+                attribute vec3 aRandOffset; // NUEVO ATRIBUTO
+
+                ${simpleNoise}
 
                 void main() {
-                    vec3 finalPos = mix(position, aTarget, uMorph) * uScale;
+                    vec3 finalPos = mix(position, aTarget, uMorph);
+                    
+                    // --- AÑADIMOS MOVIMIENTO INACTIVO Y FLUIDO CON RUIDO ---
+                    // Perturbamos la posición con ruido 3D, individualizado por aRandOffset
+                    vec3 noiseOffset = vec3(
+                        pnoise(finalPos * 0.1 + uTime * 0.1 + aRandOffset.x, vec3(10.0)),
+                        pnoise(finalPos * 0.1 + uTime * 0.1 + aRandOffset.y + 100.0, vec3(10.0)),
+                        pnoise(finalPos * 0.1 + uTime * 0.1 + aRandOffset.z + 200.0, vec3(10.0))
+                    ) * 0.5; // Amplitud del ruido inactivo es sutil
+
+                    // Aumentamos el movimiento inactivo cuando uMorph se acerca a 1.0 (para emojis)
+                    float morphMult = mix(1.0, 2.0, uMorph); 
+                    finalPos += noiseOffset * morphMult;
+                    
+                    finalPos *= uScale;
+                    
                     vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
                     gl_PointSize = uSize * (20.0 / -mvPosition.z) * (0.5 + aRandom * 0.5); 
                     gl_Position = projectionMatrix * mvPosition;
@@ -208,6 +302,100 @@
         particles = new THREE.Points(geometry, shaderMaterial);
         particles.rotation.x = Math.PI / 3; 
         scene.add(particles);
+
+        // ==========================================
+        // 4. FONDO ESPACIAL: ESTRELLAS Y COMETAS
+        // ==========================================
+        function createStarField() {
+            const count = 10000;
+            const starGeometry = new THREE.BufferGeometry();
+            const starPositions = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+                starPositions[i * 3] = (Math.random() - 0.5) * 2000;
+                starPositions[i * 3 + 1] = (Math.random() - 0.5) * 2000;
+                starPositions[i * 3 + 2] = (Math.random() - 0.5) * 2000 - 500; // Un poco lejos
+            }
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+            const starMaterial = new THREE.ShaderMaterial({
+                uniforms: { uTime: { value: 0.0 } },
+                vertexShader: `
+                    uniform float uTime;
+                    void main() {
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        // Ligero parpadeo
+                        float alpha = 0.5 + 0.5 * sin(position.x * 0.01 + uTime * 0.5);
+                        gl_PointSize = 1.0 * (1.0 + alpha); 
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    void main() {
+                        gl_FragColor = vec4(1.0, 1.0, 1.0, 0.8);
+                    }
+                `,
+                transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+            });
+            starFieldParticles = new THREE.Points(starGeometry, starMaterial);
+            scene.add(starFieldParticles);
+        }
+        createStarField();
+
+        function createComets() {
+            const count = 30; // Menor cantidad pero moviéndose
+            const cometGeometry = new THREE.BufferGeometry();
+            const cometPositions = new Float32Array(count * 3 * 2); // 2 puntos por línea de cola
+            for (let i = 0; i < count; i++) {
+                let x = (Math.random() - 0.5) * 1000;
+                let y = (Math.random() - 0.5) * 1000;
+                let z = (Math.random() - 0.5) * 1000 - 300;
+                cometPositions[i * 6] = x;
+                cometPositions[i * 6 + 1] = y;
+                cometPositions[i * 6 + 2] = z;
+                cometPositions[i * 6 + 3] = x + (Math.random() - 0.5) * 10.0;
+                cometPositions[i * 6 + 4] = y + (Math.random() - 0.5) * 10.0;
+                cometPositions[i * 6 + 5] = z + (Math.random() - 0.5) * 10.0;
+                cometsVelocity.push(new THREE.Vector3((Math.random() - 0.5) * 20.0, (Math.random() - 0.5) * 20.0, (Math.random() - 0.5) * 20.0));
+            }
+            cometGeometry.setAttribute('position', new THREE.BufferAttribute(cometPositions, 3));
+            const cometMaterial = new THREE.ShaderMaterial({
+                vertexShader: `
+                    void main() {
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        gl_PointSize = 2.0; 
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    void main() {
+                        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); // Blancos
+                    }
+                `,
+                transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+            });
+            comets = new THREE.Points(cometGeometry, cometMaterial);
+            scene.add(comets);
+        }
+        createComets();
+
+        function updateComets(delta) {
+            const positions = comets.geometry.attributes.position.array;
+            for (let i = 0; i < cometsVelocity.length; i++) {
+                let vel = cometsVelocity[i];
+                positions[i * 6] += vel.x * delta;
+                positions[i * 6 + 1] += vel.y * delta;
+                positions[i * 6 + 2] += vel.z * delta;
+                // Cola sigue a la cabeza
+                positions[i * 6 + 3] = positions[i * 6] - vel.x * 1.5;
+                positions[i * 6 + 4] = positions[i * 6 + 1] - vel.y * 1.5;
+                positions[i * 6 + 5] = positions[i * 6 + 2] - vel.z * 1.5;
+
+                // Reset si salen de pantalla
+                if (positions[i * 6] > 1000 || positions[i * 6] < -1000) positions[i * 6] = (Math.random() - 0.5) * 1000;
+                if (positions[i * 6 + 1] > 1000 || positions[i * 6 + 1] < -1000) positions[i * 6 + 1] = (Math.random() - 0.5) * 1000;
+                if (positions[i * 6 + 2] > 700 || positions[i * 6 + 2] < -1300) positions[i * 6 + 2] = (Math.random() - 0.5) * 1000 - 300;
+            }
+            comets.geometry.attributes.position.needsUpdate = true;
+        }
 
         let activeShapeName = 'rings';
         
@@ -236,7 +424,7 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
             if (isMobile) {
-                camera.position.z = 100; // Un poco más cerca porque redujimos el tamaño
+                camera.position.z = 100; 
                 shaderMaterial.uniforms.uSize.value = 18.0 * Math.min(window.devicePixelRatio, 2); 
             } else {
                 camera.position.z = 60; 
@@ -247,7 +435,7 @@
         ajustarPantalla();
 
         // ==========================================
-        // 4. LÓGICA DE MANOS Y ENCUESTA
+        // 5. LÓGICA DE MANOS Y ENCUESTA
         // ==========================================
         const videoElement = document.getElementById('input_video');
         let targetRotationX = Math.PI / 3;
@@ -279,7 +467,6 @@
         const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
         hands.setOptions({ maxNumHands: 2, modelComplexity: isMobile ? 0 : 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
-        // Función matemática para medir la distancia entre 2 puntos
         function getDistance(p1, p2) {
             return Math.hypot(p1.x - p2.x, p1.y - p2.y);
         }
@@ -296,16 +483,12 @@
                 
                 for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                     const landmarks = results.multiHandLandmarks[i];
-                    const wrist = landmarks[0]; // Muñeca
+                    const wrist = landmarks[0]; 
                     
-                    // --- NUEVO ALGORITMO ULTRA PRECISO ---
-                    // Compara si la punta del dedo está más lejos de la muñeca que el nudillo medio
-                    if (getDistance(wrist, landmarks[8]) > getDistance(wrist, landmarks[6])) totalFingersUp++;  // Índice
-                    if (getDistance(wrist, landmarks[12]) > getDistance(wrist, landmarks[10])) totalFingersUp++; // Medio
-                    if (getDistance(wrist, landmarks[16]) > getDistance(wrist, landmarks[14])) totalFingersUp++; // Anular
-                    if (getDistance(wrist, landmarks[20]) > getDistance(wrist, landmarks[18])) totalFingersUp++; // Meñique
-                    
-                    // Pulgar: Se mide contra su nudillo base (punto 3), con un margen del 10% para no equivocarse
+                    if (getDistance(wrist, landmarks[8]) > getDistance(wrist, landmarks[6])) totalFingersUp++;  
+                    if (getDistance(wrist, landmarks[12]) > getDistance(wrist, landmarks[10])) totalFingersUp++; 
+                    if (getDistance(wrist, landmarks[16]) > getDistance(wrist, landmarks[14])) totalFingersUp++; 
+                    if (getDistance(wrist, landmarks[20]) > getDistance(wrist, landmarks[18])) totalFingersUp++; 
                     if (getDistance(wrist, landmarks[4]) > getDistance(wrist, landmarks[3]) * 1.1) totalFingersUp++;
 
                     if (i === 0) {
@@ -355,10 +538,20 @@
         camera_mp.start();
 
         // ==========================================
-        // 5. ANIMACIÓN Y RENDERIZADO
+        // 6. ANIMACIÓN Y RENDERIZADO
         // ==========================================
+        let clock = new THREE.Clock(); // Para delta time
+
         function animate() {
             requestAnimationFrame(animate);
+            let time = performance.now() * 0.001;
+            let delta = clock.getDelta(); // Time delta para cometas
+
+            // Actualizamos uTime en todos los materiales de shader
+            shaderMaterial.uniforms.uTime.value = time;
+            starFieldParticles.material.uniforms.uTime.value = time;
+            
+            updateComets(delta); // Actualizar posiciones de cometas
 
             if (shaderMaterial.uniforms.uMorph.value < 1.0) {
                 shaderMaterial.uniforms.uMorph.value += 0.04;
