@@ -127,18 +127,34 @@
             }
         }
 
+        // --- NUEVA FIGURA: ESFERA CENTRAL + ANILLOS CORTOS ---
         for (let i = 0; i < particleCount; i++) {
-            let ringType = Math.random();
-            let radius;
-            if (ringType < 0.2) radius = 10 + Math.random() * 4;
-            else if (ringType < 0.5) radius = 18 + Math.random() * 6;
-            else if (ringType < 0.8) radius = 28 + Math.random() * 8;
-            else radius = 42 + Math.random() * 12;
+            let type = Math.random();
+            
+            if (type < 0.25) { 
+                // 25% de partículas hacen la Esfera Central
+                let phi = Math.acos(-1 + (2 * i) / (particleCount * 0.25));
+                let theta = Math.sqrt(particleCount * 0.25 * Math.PI) * phi;
+                let radius = 6 + Math.random(); // Esfera sólida de radio 6
+                
+                shapeRings[i * 3] = radius * Math.cos(theta) * Math.sin(phi);
+                shapeRings[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
+                shapeRings[i * 3 + 2] = radius * Math.cos(phi);
+            } else { 
+                // 75% hacen anillos más cercanos a la esfera
+                let ringType = Math.random();
+                let radius;
+                
+                // Radios de 12 a 25 (antes eran hasta 54)
+                if (ringType < 0.4) radius = 12 + Math.random() * 2;
+                else if (ringType < 0.7) radius = 16 + Math.random() * 3;
+                else radius = 22 + Math.random() * 3;
 
-            let theta = Math.random() * Math.PI * 2;
-            shapeRings[i * 3] = radius * Math.cos(theta);
-            shapeRings[i * 3 + 1] = (Math.random() - 0.5) * 1.5; 
-            shapeRings[i * 3 + 2] = radius * Math.sin(theta);
+                let theta = Math.random() * Math.PI * 2;
+                shapeRings[i * 3] = radius * Math.cos(theta);
+                shapeRings[i * 3 + 1] = (Math.random() - 0.5) * 0.8; // Anillos bien planos
+                shapeRings[i * 3 + 2] = radius * Math.sin(theta);
+            }
         }
 
         createTextShape("Te Quiero", "Samantha", shapeText1);
@@ -220,10 +236,10 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
             if (isMobile) {
-                camera.position.z = 120; 
+                camera.position.z = 100; // Un poco más cerca porque redujimos el tamaño
                 shaderMaterial.uniforms.uSize.value = 18.0 * Math.min(window.devicePixelRatio, 2); 
             } else {
-                camera.position.z = 70; 
+                camera.position.z = 60; 
                 shaderMaterial.uniforms.uSize.value = 10.0 * Math.min(window.devicePixelRatio, 2);
             }
         }
@@ -240,23 +256,16 @@
         let pollActive = false;
         let pollAnswered = false;
 
-        // RESPUESTA DE LA ENCUESTA (CLIC O TAP)
         function handleInteraction(event) {
             if (!pollActive || pollAnswered) return;
-
             let clientX = event.type.includes('touch') ? event.touches[0].clientX : event.clientX;
-
             if (clientX < window.innerWidth / 2) {
-                // Mitad Izquierda (SÍ)
                 pollAnswered = true;
                 changeShape(shapeHeart, params.heartColor, 'heart');
             } else {
-                // Mitad Derecha (NO)
                 pollAnswered = true;
                 changeShape(shapeSad, params.sadColor, 'sad');
             }
-
-            // Después de 4 segundos, volvemos al estado normal
             setTimeout(() => { 
                 pollActive = false; 
                 pollAnswered = false; 
@@ -268,19 +277,15 @@
         window.addEventListener('touchstart', handleInteraction);
 
         const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-        
-        // AHORA DETECTAMOS HASTA 2 MANOS
-        hands.setOptions({ 
-            maxNumHands: 2, 
-            modelComplexity: isMobile ? 0 : 1, 
-            minDetectionConfidence: 0.5, 
-            minTrackingConfidence: 0.5 
-        });
+        hands.setOptions({ maxNumHands: 2, modelComplexity: isMobile ? 0 : 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+        // Función matemática para medir la distancia entre 2 puntos
+        function getDistance(p1, p2) {
+            return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        }
 
         hands.onResults((results) => {
             document.getElementById('loading').style.display = 'none';
-
-            // Si la encuesta está activa, IGNORAR las manos por completo
             if (pollActive) return;
 
             let totalFingersUp = 0;
@@ -289,25 +294,27 @@
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 
-                // Sumar los dedos de todas las manos en pantalla
                 for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                     const landmarks = results.multiHandLandmarks[i];
+                    const wrist = landmarks[0]; // Muñeca
                     
-                    if (landmarks[8].y < landmarks[6].y) totalFingersUp++;
-                    if (landmarks[12].y < landmarks[10].y) totalFingersUp++;
-                    if (landmarks[16].y < landmarks[14].y) totalFingersUp++;
-                    if (landmarks[20].y < landmarks[18].y) totalFingersUp++;
-                    if (Math.abs(landmarks[4].x - landmarks[9].x) > 0.1) totalFingersUp++;
+                    // --- NUEVO ALGORITMO ULTRA PRECISO ---
+                    // Compara si la punta del dedo está más lejos de la muñeca que el nudillo medio
+                    if (getDistance(wrist, landmarks[8]) > getDistance(wrist, landmarks[6])) totalFingersUp++;  // Índice
+                    if (getDistance(wrist, landmarks[12]) > getDistance(wrist, landmarks[10])) totalFingersUp++; // Medio
+                    if (getDistance(wrist, landmarks[16]) > getDistance(wrist, landmarks[14])) totalFingersUp++; // Anular
+                    if (getDistance(wrist, landmarks[20]) > getDistance(wrist, landmarks[18])) totalFingersUp++; // Meñique
+                    
+                    // Pulgar: Se mide contra su nudillo base (punto 3), con un margen del 10% para no equivocarse
+                    if (getDistance(wrist, landmarks[4]) > getDistance(wrist, landmarks[3]) * 1.1) totalFingersUp++;
 
-                    // Guardamos la posición del índice de la primera mano para la rotación 3D
                     if (i === 0) {
                         indexFingerX = landmarks[8].x;
                         indexFingerY = landmarks[8].y;
                     }
                 }
 
-                // LÓGICA DE GESTOS
-                if (totalFingersUp >= 9) { // 9 o 10 dedos activa la encuesta (por si la cámara falla con un dedo)
+                if (totalFingersUp >= 9) { 
                     pollActive = true;
                     targetRotationX = 0; targetRotationY = 0; targetScale = 1.0;
                     changeShape(shapePoll, params.baseColor, 'poll');
