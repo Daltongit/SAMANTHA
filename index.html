@@ -2,14 +2,15 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Partículas Interactivas 3D - Gestos</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Para Samantha</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background-color: #000;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; /* Previene scroll en celulares */
         }
         canvas {
             display: block;
@@ -18,35 +19,38 @@
             position: absolute;
             bottom: 20px;
             left: 20px;
-            width: 200px;
-            height: 150px;
+            width: 150px;
+            height: 100px;
             border-radius: 10px;
             overflow: hidden;
             border: 2px solid rgba(255, 255, 255, 0.2);
             z-index: 10;
-            display: none; /* Oculto por defecto para mantener el estilo minimalista */
+            display: none;
         }
         video {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(-1); /* Efecto espejo */
+            transform: scaleX(-1);
         }
         #ui-container {
             position: absolute;
             bottom: 20px;
             right: 20px;
             z-index: 10;
+            display: flex;
+            gap: 10px;
         }
         button {
             background: rgba(255, 255, 255, 0.1);
             color: white;
             border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 10px 20px;
+            padding: 10px 15px;
             border-radius: 5px;
             cursor: pointer;
             backdrop-filter: blur(5px);
             transition: background 0.3s;
+            font-size: 14px;
         }
         button:hover {
             background: rgba(255, 255, 255, 0.3);
@@ -60,19 +64,24 @@
             font-size: 1.2rem;
             z-index: 20;
             pointer-events: none;
+            text-align: center;
+        }
+        /* Ajustes para celular */
+        @media (max-width: 768px) {
+            #video-container { width: 100px; height: 75px; }
+            .dg.ac { display: none !important; } /* Oculta el menú lateral en celular para no estorbar */
         }
     </style>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
-    
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <div id="loading">Cargando modelo de IA y cámara...</div>
+    <div id="loading">Cargando magia...<br><small>Por favor, permite el acceso a la cámara</small></div>
 
     <div id="video-container">
         <video id="input_video" autoplay playsinline></video>
@@ -84,93 +93,127 @@
 
     <script>
         // ==========================================
-        // 1. CONFIGURACIÓN THREE.JS
+        // 1. CONFIGURACIÓN BÁSICA THREE.JS
         // ==========================================
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 50;
+        camera.position.z = 60; // Alejamos un poco para que quepa el texto
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Optimizado para móviles
         document.body.appendChild(renderer.domElement);
 
-        // Variables de Partículas
+        const particleCount = 12000; // Un poco menos para garantizar fluidez en celulares
         let particles, geometry, materials;
-        let originalPositions = [];
-        const particleCount = 15000;
+        
+        // Arrays para morphing (transiciones suaves)
+        let currentPositions = new Float32Array(particleCount * 3);
+        let targetPositions = new Float32Array(particleCount * 3);
+        
+        // Guardamos las formas base
+        let shapeSphere = new Float32Array(particleCount * 3);
+        let shapeText1 = new Float32Array(particleCount * 3);
+        let shapeText2 = new Float32Array(particleCount * 3);
 
-        // Configuración de UI interactiva
         const params = {
-            color: '#00ffff',
-            pattern: 'Esfera',
-            particleSize: 0.15,
+            color: '#ff0055', // Un color más romántico por defecto
+            particleSize: 0.25,
             showCamera: false
         };
 
-        function createParticles(pattern) {
-            if (particles) scene.remove(particles);
-
-            geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(particleCount * 3);
-            originalPositions = new Float32Array(particleCount * 3);
-
-            for (let i = 0; i < particleCount * 3; i += 3) {
-                let x, y, z;
-
-                if (pattern === 'Esfera') {
-                    const phi = Math.acos(-1 + (2 * i / 3) / particleCount);
-                    const theta = Math.sqrt(particleCount * Math.PI) * phi;
-                    const radius = 20;
-                    x = radius * Math.cos(theta) * Math.sin(phi);
-                    y = radius * Math.sin(theta) * Math.sin(phi);
-                    z = radius * Math.cos(phi);
-                } else if (pattern === 'Cubo') {
-                    const size = 30;
-                    x = (Math.random() - 0.5) * size;
-                    y = (Math.random() - 0.5) * size;
-                    z = (Math.random() - 0.5) * size;
-                } else { // Galaxia
-                    const radius = Math.random() * 30;
-                    const theta = radius * 0.5 + Math.random() * Math.PI * 2;
-                    x = Math.cos(theta) * radius;
-                    y = (Math.random() - 0.5) * 5; // Grosor
-                    z = Math.sin(theta) * radius;
-                }
-
-                positions[i] = x;
-                positions[i + 1] = y;
-                positions[i + 2] = z;
-
-                originalPositions[i] = x;
-                originalPositions[i + 1] = y;
-                originalPositions[i + 2] = z;
+        // ==========================================
+        // 2. GENERADOR DE FORMAS Y TEXTOS
+        // ==========================================
+        
+        // Función para convertir texto en coordenadas 3D
+        function createTextShape(text, targetArray) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = 300;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 70px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Si es texto largo, lo dividimos en dos líneas
+            if(text.includes('Samantha')){
+                ctx.fillText('Te Quiero', canvas.width/2, canvas.height/2 - 40);
+                ctx.fillText('Samantha', canvas.width/2, canvas.height/2 + 40);
+            } else {
+                ctx.fillText('Chiquilla', canvas.width/2, canvas.height/2 - 40);
+                ctx.fillText('Preciosa', canvas.width/2, canvas.height/2 + 40);
             }
 
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const validPoints = [];
 
-            materials = new THREE.PointsMaterial({
-                color: new THREE.Color(params.color),
-                size: params.particleSize,
-                transparent: true,
-                opacity: 0.8,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
-            });
+            // Leer píxeles
+            for (let y = 0; y < canvas.height; y += 3) {
+                for (let x = 0; x < canvas.width; x += 3) {
+                    const i = (y * canvas.width + x) * 4;
+                    if (imgData[i] > 128) {
+                        validPoints.push({
+                            x: (x - canvas.width / 2) * 0.15,
+                            y: -(y - canvas.height / 2) * 0.15,
+                            z: (Math.random() - 0.5) * 2 // Ligera profundidad
+                        });
+                    }
+                }
+            }
 
-            particles = new THREE.Points(geometry, materials);
-            scene.add(particles);
+            // Llenar el arreglo de partículas repitiendo los puntos si es necesario
+            for (let i = 0; i < particleCount; i++) {
+                const point = validPoints[i % validPoints.length];
+                targetArray[i * 3] = point.x + (Math.random() - 0.5) * 0.5; // Ligero ruido
+                targetArray[i * 3 + 1] = point.y + (Math.random() - 0.5) * 0.5;
+                targetArray[i * 3 + 2] = point.z;
+            }
         }
 
-        createParticles(params.pattern);
+        // Crear la esfera base
+        for (let i = 0; i < particleCount; i++) {
+            const phi = Math.acos(-1 + (2 * i) / particleCount);
+            const theta = Math.sqrt(particleCount * Math.PI) * phi;
+            const radius = 25;
+            
+            shapeSphere[i * 3] = radius * Math.cos(theta) * Math.sin(phi);
+            shapeSphere[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
+            shapeSphere[i * 3 + 2] = radius * Math.cos(phi);
+            
+            // Posición inicial
+            currentPositions[i * 3] = shapeSphere[i * 3];
+            currentPositions[i * 3 + 1] = shapeSphere[i * 3 + 1];
+            currentPositions[i * 3 + 2] = shapeSphere[i * 3 + 2];
+        }
 
-        // ==========================================
-        // 2. INTERFAZ DE USUARIO (dat.gui)
-        // ==========================================
+        // Generar los textos en memoria
+        createTextShape("Te Quiero Samantha", shapeText1);
+        createTextShape("Chiquilla Preciosa", shapeText2);
+
+        // Inicializar el sistema de partículas
+        geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
+
+        materials = new THREE.PointsMaterial({
+            color: new THREE.Color(params.color),
+            size: params.particleSize,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        particles = new THREE.Points(geometry, materials);
+        scene.add(particles);
+
+        // Interfaz
         const gui = new dat.GUI();
         gui.addColor(params, 'color').name('Color').onChange(c => materials.color.setHex(c.replace('#', '0x')));
-        gui.add(params, 'pattern', ['Esfera', 'Cubo', 'Galaxia']).name('Patrón').onChange(p => createParticles(p));
-        gui.add(params, 'particleSize', 0.05, 0.5).name('Tamaño').onChange(s => materials.size = s);
         gui.add(params, 'showCamera').name('Ver Cámara').onChange(v => {
             document.getElementById('video-container').style.display = v ? 'block' : 'none';
         });
@@ -179,45 +222,71 @@
         // 3. MEDIAPIPE Y RECONOCIMIENTO DE GESTOS
         // ==========================================
         const videoElement = document.getElementById('input_video');
-        let targetGestureValue = 0; // 0 (Cerrado) a 1 (Abierto)
-        let currentGestureValue = 0; // Para el Lerp (suavizado)
+        
+        // Variables para la rotación con la mano
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+        let currentRotationX = 0;
+        let currentRotationY = 0;
+        
+        let currentState = 'esfera'; // 'esfera', 'texto1', 'texto2'
 
         const hands = new Hands({
-            locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-            }
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
 
         hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
         });
 
         hands.onResults((results) => {
-            // Ocultar mensaje de carga
             document.getElementById('loading').style.display = 'none';
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // Puntos clave: 4 (Punta del pulgar), 8 (Punta del índice)
-                const thumbTip = landmarks[4];
-                const indexTip = landmarks[8];
+                // --- ROTACIÓN ---
+                // Usamos el centro de la palma (landmark 9) para girar el objeto
+                const palmX = landmarks[9].x - 0.5; // de -0.5 a 0.5
+                const palmY = landmarks[9].y - 0.5;
+                
+                targetRotationY = palmX * Math.PI * 2; // Gira izquierda/derecha
+                targetRotationX = palmY * Math.PI;     // Gira arriba/abajo
 
-                // Calcular distancia Euclidiana
-                const dx = thumbTip.x - indexTip.x;
-                const dy = thumbTip.y - indexTip.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                // --- DETECCIÓN DE DEDOS ---
+                let fingersUp = 0;
+                
+                // Dedo Índice (Punta 8 vs Nudillo 6)
+                if (landmarks[8].y < landmarks[6].y) fingersUp++;
+                // Dedo Medio (Punta 12 vs Nudillo 10)
+                if (landmarks[12].y < landmarks[10].y) fingersUp++;
+                // Dedo Anular (Punta 16 vs Nudillo 14)
+                if (landmarks[16].y < landmarks[14].y) fingersUp++;
+                // Dedo Meñique (Punta 20 vs Nudillo 18)
+                if (landmarks[20].y < landmarks[18].y) fingersUp++;
 
-                // Normalizar la distancia (ajusta estos valores según pruebas)
-                // 0.03 suele ser cerrado (pellizco), 0.15+ es abierto
-                let normalized = (distance - 0.03) / (0.15 - 0.03);
-                targetGestureValue = Math.max(0, Math.min(1, normalized)); 
+                // Lógica de cambio de estado
+                if (fingersUp === 2) {
+                    currentState = 'texto1'; // 2 dedos: Te quiero Samantha
+                    // Enderezar la rotación para que se lea bien el texto
+                    targetRotationX = 0; 
+                    targetRotationY = 0;
+                } else if (fingersUp === 3) {
+                    currentState = 'texto2'; // 3 dedos: Chiquilla preciosa
+                    targetRotationX = 0; 
+                    targetRotationY = 0;
+                } else {
+                    currentState = 'esfera'; // Cualquier otra cosa: Vuelve a la esfera
+                }
+
             } else {
-                // Si no hay mano, volver a estado cerrado o neutral lentamente
-                targetGestureValue = 0.5; 
+                // Si no hay mano, gira lentamente por defecto y vuelve a esfera
+                targetRotationY += 0.01;
+                targetRotationX = 0;
+                currentState = 'esfera';
             }
         });
 
@@ -231,37 +300,31 @@
         camera_mp.start();
 
         // ==========================================
-        // 4. BUCLE DE ANIMACIÓN
+        // 4. BUCLE DE ANIMACIÓN Y MORPHING
         // ==========================================
         function animate() {
             requestAnimationFrame(animate);
 
-            // Suavizado (Lerp) del valor del gesto para evitar tirones bruscos
-            currentGestureValue += (targetGestureValue - currentGestureValue) * 0.1;
+            // Determinar qué arreglo usar como objetivo
+            let activeTargetArray = shapeSphere;
+            if (currentState === 'texto1') activeTargetArray = shapeText1;
+            if (currentState === 'texto2') activeTargetArray = shapeText2;
 
-            if (geometry) {
-                const positions = geometry.attributes.position.array;
-                
-                // Animar partículas basándose en el gesto
-                for (let i = 0; i < particleCount * 3; i += 3) {
-                    const ox = originalPositions[i];
-                    const oy = originalPositions[i + 1];
-                    const oz = originalPositions[i + 2];
+            // Transición suave (Lerp) de la posición de cada partícula
+            const positions = geometry.attributes.position.array;
+            const lerpSpeed = 0.08; // Velocidad a la que se forma el texto
 
-                    // Dispersión/Contracción matemática simple
-                    // currentGestureValue = 0 (contraído), 1 (disperso)
-                    const scale = 0.2 + (currentGestureValue * 1.5); 
-                    
-                    positions[i] = ox * scale;
-                    positions[i + 1] = oy * scale;
-                    positions[i + 2] = oz * scale;
-                }
-                geometry.attributes.position.needsUpdate = true;
+            for (let i = 0; i < particleCount * 3; i++) {
+                positions[i] += (activeTargetArray[i] - positions[i]) * lerpSpeed;
             }
+            geometry.attributes.position.needsUpdate = true;
 
-            // Rotación suave de todo el sistema
-            particles.rotation.y += 0.002;
-            particles.rotation.x += 0.001;
+            // Transición suave de la rotación
+            currentRotationX += (targetRotationX - currentRotationX) * 0.1;
+            currentRotationY += (targetRotationY - currentRotationY) * 0.1;
+            
+            particles.rotation.x = currentRotationX;
+            particles.rotation.y = currentRotationY;
 
             renderer.render(scene, camera);
         }
@@ -278,9 +341,7 @@
 
         document.getElementById('fullscreen-btn').addEventListener('click', () => {
             if (!document.fullscreenElement) {
-                document.body.requestFullscreen().catch(err => {
-                    console.log(`Error intentando entrar en pantalla completa: ${err.message}`);
-                });
+                document.body.requestFullscreen().catch(err => console.log(err));
             } else {
                 document.exitFullscreen();
             }
